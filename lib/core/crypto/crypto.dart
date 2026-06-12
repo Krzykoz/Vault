@@ -5,3 +5,4 @@ library;
 export 'aead.dart';
 export 'kdf.dart';
 export 'secure_random.dart';
+export 'vault_file.dart';
