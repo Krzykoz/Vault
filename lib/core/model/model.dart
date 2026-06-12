@@ -3,6 +3,7 @@
 library;
 
 export 'asset.dart';
+export 'calculations.dart';
 export 'currency.dart';
 export 'lot.dart';
 export 'money.dart';
