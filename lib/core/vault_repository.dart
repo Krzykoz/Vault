@@ -26,6 +26,12 @@ class VaultRepository {
   Argon2Params? _params;
   VaultPayload? _payload;
 
+  /// Bumped whenever the session changes (create/open/close). A save captures
+  /// the generation before its async write and refuses to repopulate the
+  /// decrypted payload if the session changed meanwhile — so a write finishing
+  /// after [close] cannot leave decrypted data in memory.
+  int _generation = 0;
+
   VaultRepository(
     this._fileStore, {
     VaultCodec? codec,
@@ -52,6 +58,7 @@ class VaultRepository {
     required String password,
     required VaultPayload initial,
   }) async {
+    _generation++;
     final session = await _codec.encodeNew(
       payload: initial,
       password: password,
@@ -69,6 +76,7 @@ class VaultRepository {
   /// [VaultNotFound] if there is no file, [WrongPassword] on a bad password, or
   /// [InvalidVaultFile] on a malformed file.
   Future<VaultPayload> open({required String password}) async {
+    _generation++;
     final bytes = await _fileStore.read();
     if (bytes == null) throw const VaultNotFound();
     final session = await _codec.decodeSession(bytes: bytes, password: password);
@@ -80,6 +88,8 @@ class VaultRepository {
   }
 
   /// Persists [next] using the cached key (no Argon2id) and updates the session.
+  /// If the session was closed/replaced during the write, the file is still
+  /// written but the in-memory decrypted payload is NOT restored.
   Future<VaultPayload> save(VaultPayload next) async {
     final key = _key;
     final salt = _salt;
@@ -87,6 +97,7 @@ class VaultRepository {
     if (key == null || salt == null || params == null) {
       throw StateError('Vault is not open');
     }
+    final generation = _generation;
     final bytes = await _codec.encodeWithKey(
       payload: next,
       key: key,
@@ -94,6 +105,7 @@ class VaultRepository {
       params: params,
     );
     await _fileStore.write(bytes);
+    if (generation != _generation) return next; // closed/replaced mid-write
     _payload = next;
     return next;
   }
@@ -104,6 +116,7 @@ class VaultRepository {
 
   /// Clears the in-memory session (key and payload).
   void close() {
+    _generation++;
     _key = null;
     _salt = null;
     _params = null;

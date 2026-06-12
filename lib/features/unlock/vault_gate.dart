@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'create_vault_screen.dart';
-import 'open_home.dart';
 import 'unlock_screen.dart';
 import 'vault_controller.dart';
+import '../portfolio/portfolio_screen.dart';
 
 /// Routes to the right screen based on whether a vault exists and is open.
 class VaultGate extends ConsumerWidget {
@@ -21,7 +21,7 @@ class VaultGate extends ConsumerWidget {
       case VaultPhase.locked:
         return const UnlockScreen();
       case VaultPhase.open:
-        return const OpenHome();
+        return const PortfolioScreen();
     }
   }
 }

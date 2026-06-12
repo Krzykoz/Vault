@@ -2,7 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/crypto/aead.dart';
 import '../../core/crypto/kdf.dart';
+import '../../core/model/asset.dart';
 import '../../core/model/currency.dart';
+import '../../core/model/lot.dart';
 import '../../core/model/payload.dart';
 import '../../core/model/settings.dart';
 import '../../core/ports/file_store.dart';
@@ -54,6 +56,11 @@ class VaultController extends Notifier<VaultUiState> {
 
   VaultRepository get _repo => ref.read(vaultRepositoryProvider);
 
+  /// Bumped whenever the session changes (open/lock). A mutation captures the
+  /// epoch before its async write and drops its result if the epoch moved,
+  /// so a write completing after [lock] cannot reopen the vault.
+  int _epoch = 0;
+
   Future<void> _init() async {
     final exists = await _repo.exists();
     state = VaultUiState(
@@ -68,6 +75,7 @@ class VaultController extends Notifier<VaultUiState> {
         password: password,
         initial: VaultPayload(settings: Settings(baseCurrency: Currency('USD'))),
       );
+      _epoch++;
       state = VaultUiState(phase: VaultPhase.open, payload: payload);
     } catch (_) {
       state = const VaultUiState(
@@ -81,6 +89,7 @@ class VaultController extends Notifier<VaultUiState> {
     state = const VaultUiState(phase: VaultPhase.locked, busy: true);
     try {
       final payload = await _repo.open(password: password);
+      _epoch++;
       state = VaultUiState(phase: VaultPhase.open, payload: payload);
     } on WrongPassword {
       state = const VaultUiState(
@@ -96,8 +105,56 @@ class VaultController extends Notifier<VaultUiState> {
   }
 
   void lock() {
+    _epoch++;
     _repo.close();
     state = const VaultUiState(phase: VaultPhase.locked);
+  }
+
+  /// Adds [asset] if its id is new, or replaces the existing one.
+  Future<void> upsertAsset(Asset asset) => _mutate((payload) {
+        final assets = [...payload.assets];
+        final index = assets.indexWhere((a) => a.id == asset.id);
+        if (index >= 0) {
+          assets[index] = asset;
+        } else {
+          assets.add(asset);
+        }
+        return payload.copyWith(assets: assets);
+      });
+
+  /// Removes an asset and any lots that belonged to it.
+  Future<void> deleteAsset(String assetId) => _mutate((payload) => payload.copyWith(
+        assets: payload.assets.where((a) => a.id != assetId).toList(),
+        lots: payload.lots.where((l) => l.assetId != assetId).toList(),
+      ));
+
+  /// Adds [lot] if its id is new, or replaces the existing one.
+  Future<void> upsertLot(Lot lot) => _mutate((payload) {
+        final lots = [...payload.lots];
+        final index = lots.indexWhere((l) => l.id == lot.id);
+        if (index >= 0) {
+          lots[index] = lot;
+        } else {
+          lots.add(lot);
+        }
+        return payload.copyWith(lots: lots);
+      });
+
+  Future<void> deleteLot(String lotId) => _mutate(
+        (payload) => payload.copyWith(
+          lots: payload.lots.where((l) => l.id != lotId).toList(),
+        ),
+      );
+
+  Future<void> _mutate(VaultPayload Function(VaultPayload current) change) async {
+    final epoch = _epoch;
+    try {
+      final next = await _repo.update(change);
+      if (epoch != _epoch) return; // locked or reopened mid-write; drop the result
+      state = VaultUiState(phase: VaultPhase.open, payload: next);
+    } on StateError {
+      // The vault was locked before the write started; nothing to update.
+    }
   }
 }
 

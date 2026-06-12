@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:decimal/decimal.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,15 @@ import 'package:vault/core/model/settings.dart';
 import 'package:vault/core/vault_repository.dart';
 
 import '../support/fakes.dart';
+
+/// In-memory store whose writes take a beat, so close() can land mid-write.
+class _SlowStore extends InMemoryFileStore {
+  @override
+  Future<void> write(Uint8List data) async {
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    await super.write(data);
+  }
+}
 
 void main() {
   final usd = Currency('USD');
@@ -130,6 +140,18 @@ void main() {
         () => repoFor(InMemoryFileStore()).save(sample()),
         throwsStateError,
       );
+    });
+
+    test('a save finishing after close does not restore the session', () async {
+      final repo = VaultRepository(_SlowStore(), createParams: params);
+      await repo.create(password: 'pw', initial: sample());
+
+      final pending = repo.save(sample()); // slow write in flight
+      repo.close();
+      await pending;
+
+      expect(repo.isOpen, isFalse);
+      expect(() => repo.payload, throwsStateError);
     });
   });
 }

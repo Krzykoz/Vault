@@ -45,8 +45,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('password')), 'opensesame');
     await tester.enterText(find.byKey(const Key('confirm')), 'opensesame');
     await tester.tap(find.byKey(const Key('create')));
-    await _pumpUntil(tester, find.textContaining('unlocked'));
-    expect(find.textContaining('unlocked'), findsOneWidget);
+    await _pumpUntil(tester, find.text('Portfolio'));
+    expect(find.text('Portfolio'), findsOneWidget);
 
     // The file now exists on disk.
     expect(store.bytes, isNotNull);
@@ -64,8 +64,8 @@ void main() {
     // Correct password opens it.
     await tester.enterText(find.byKey(const Key('password')), 'opensesame');
     await tester.tap(find.byKey(const Key('unlock')));
-    await _pumpUntil(tester, find.textContaining('unlocked'));
-    expect(find.textContaining('unlocked'), findsOneWidget);
+    await _pumpUntil(tester, find.text('Portfolio'));
+    expect(find.text('Portfolio'), findsOneWidget);
   });
 
   testWidgets('rejects a too-short password', (tester) async {
