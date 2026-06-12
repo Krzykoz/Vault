@@ -7,8 +7,10 @@ import '../../core/model/currency.dart';
 import '../../core/model/lot.dart';
 import '../../core/model/payload.dart';
 import '../../core/model/settings.dart';
+import '../../core/ports/clock.dart';
 import '../../core/ports/file_store.dart';
 import '../../core/vault_repository.dart';
+import '../../infra/system_clock.dart';
 
 /// Where the encrypted vault file lives. Overridden at app start with a native
 /// path (or in tests with an in-memory store), so the default throws to catch
@@ -16,6 +18,9 @@ import '../../core/vault_repository.dart';
 final vaultFileStoreProvider = Provider<FileStore>((ref) {
   throw UnimplementedError('vaultFileStoreProvider must be overridden');
 });
+
+/// The clock used for cache-freshness decisions. Overridden in tests.
+final clockProvider = Provider<Clock>((ref) => const SystemClock());
 
 /// Argon2id parameters used when creating a NEW vault. Overridden to a fast
 /// preset in tests.
