@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-void main() {
-  runApp(const ProviderScope(child: VaultApp()));
+import 'features/unlock/vault_controller.dart';
+import 'features/unlock/vault_gate.dart';
+import 'infra/default_file_store.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final fileStore = await createDefaultFileStore();
+  runApp(
+    ProviderScope(
+      overrides: [vaultFileStoreProvider.overrideWithValue(fileStore)],
+      child: const VaultApp(),
+    ),
+  );
 }
 
-/// Root of the Vault app. Real screens arrive in later tasks; this placeholder
-/// keeps the project building and booting on every target platform.
 class VaultApp extends StatelessWidget {
   const VaultApp({super.key});
 
@@ -19,19 +28,7 @@ class VaultApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: const SetupHome(),
-    );
-  }
-}
-
-class SetupHome extends StatelessWidget {
-  const SetupHome({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Vault')),
-      body: const Center(child: Text('Vault setup complete')),
+      home: const VaultGate(),
     );
   }
 }
