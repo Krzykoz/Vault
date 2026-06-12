@@ -36,5 +36,13 @@ void main() {
       const params = Argon2Params();
       expect(Argon2Params.fromMap(params.toMap()), params);
     });
+
+    test('production default matches the chosen OWASP parameters (spike result)', () {
+      const params = Argon2Params();
+      expect(params.memory, 19456);
+      expect(params.iterations, 2);
+      expect(params.parallelism, 1);
+      expect(params.hashLength, 32);
+    });
   });
 }

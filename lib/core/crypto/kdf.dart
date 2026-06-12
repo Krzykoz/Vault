@@ -2,10 +2,18 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 
-/// Argon2id cost parameters. Defaults follow OWASP's Argon2id recommendation
-/// (m=19456 KiB, t=2, p=1, 32-byte output). These get tuned for real devices in
-/// the performance spike task; they are stored alongside each vault so a file
-/// can always be re-derived with the parameters it was created with.
+/// Argon2id cost parameters.
+///
+/// Production defaults are OWASP's recommended Argon2id config
+/// (m=19456 KiB, t=2, p=1, 32-byte output). The Task 6 performance spike measured
+/// one derivation (pure-Dart, no native acceleration) at roughly:
+///   - native (desktop/mobile VM): ~100 ms
+///   - web (dart2js, Chrome):      ~8 s
+/// Web is memory-bound and far slower; the shipped dart2wasm runtime is faster
+/// than dart2js but still seconds-scale, so the unlock screen shows a progress
+/// indicator and an on-device check remains the final confirmation. Parameters
+/// are stored alongside each vault, so a file is always re-derived with the
+/// parameters it was created with. See `tool/argon2_bench.dart` and SPEC.md §6.
 class Argon2Params {
   /// Number of lanes (p).
   final int parallelism;
