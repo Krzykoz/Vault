@@ -19,6 +19,15 @@ class InvalidVaultFile implements Exception {
   String toString() => 'InvalidVaultFile: $message';
 }
 
+/// A decrypted vault plus the material needed to re-encrypt it cheaply, without
+/// re-deriving the Argon2id key: the derived [key], the [salt], and [params].
+typedef VaultSession = ({
+  VaultPayload payload,
+  List<int> key,
+  List<int> salt,
+  Argon2Params params,
+});
+
 /// Reads and writes the on-disk vault format:
 ///
 ///   CBOR map { magic, version, kdf, salt, nonce, ct, mac }
@@ -49,8 +58,44 @@ class VaultCodec {
     required String password,
     Argon2Params params = const Argon2Params(),
   }) async {
+    final session =
+        await encodeNew(payload: payload, password: password, params: params);
+    return session.bytes;
+  }
+
+  /// Like [encode], but also returns the derived key/salt/params so the caller
+  /// can re-save later with [encodeWithKey] and skip the Argon2id derivation.
+  Future<
+      ({
+        Uint8List bytes,
+        List<int> key,
+        List<int> salt,
+        Argon2Params params
+      })> encodeNew({
+    required VaultPayload payload,
+    required String password,
+    Argon2Params params = const Argon2Params(),
+  }) async {
     final salt = secureRandomBytes(saltLength);
     final key = await Kdf(params).deriveKey(password: password, salt: salt);
+    final bytes = await encodeWithKey(
+      payload: payload,
+      key: key,
+      salt: salt,
+      params: params,
+    );
+    return (bytes: bytes, key: key, salt: salt, params: params);
+  }
+
+  /// Encrypts [payload] with an already-derived [key], reusing the [salt] and
+  /// [params] of the open session. A fresh nonce is generated on every call, so
+  /// re-saving is safe and cheap (no Argon2id).
+  Future<Uint8List> encodeWithKey({
+    required VaultPayload payload,
+    required List<int> key,
+    required List<int> salt,
+    required Argon2Params params,
+  }) async {
     final plaintext = cborEncode(CborValue(payload.toMap()));
     final cipher =
         await _aead.encrypt(key: key, plaintext: plaintext, aad: _aad);
@@ -74,6 +119,31 @@ class VaultCodec {
     required List<int> bytes,
     required String password,
   }) async {
+    return (await decodeSession(bytes: bytes, password: password)).payload;
+  }
+
+  /// Like [decode], but also returns the derived key/salt/params so the caller
+  /// can re-save cheaply with [encodeWithKey].
+  Future<VaultSession> decodeSession({
+    required List<int> bytes,
+    required String password,
+  }) async {
+    final envelope = _parseEnvelope(bytes);
+    final key = await Kdf(envelope.params)
+        .deriveKey(password: password, salt: envelope.salt);
+    final plaintext =
+        await _aead.decrypt(key: key, data: envelope.cipher, aad: _aad);
+    return (
+      payload: _decodePayload(plaintext),
+      key: key,
+      salt: envelope.salt,
+      params: envelope.params,
+    );
+  }
+
+  ({Argon2Params params, List<int> salt, CipherData cipher}) _parseEnvelope(
+    List<int> bytes,
+  ) {
     final Map<Object?, Object?> envelope;
     try {
       final decoded = cborDecode(bytes).toObject();
@@ -94,17 +164,18 @@ class VaultCodec {
       throw InvalidVaultFile('unsupported version: ${envelope['version']}');
     }
 
-    final params = _parseParams(envelope['kdf']);
-    final salt = _asBytes(envelope['salt']);
-    final cipher = CipherData(
-      nonce: _asBytes(envelope['nonce']),
-      cipherText: _asBytes(envelope['ct']),
-      mac: _asBytes(envelope['mac']),
+    return (
+      params: _parseParams(envelope['kdf']),
+      salt: _asBytes(envelope['salt']),
+      cipher: CipherData(
+        nonce: _asBytes(envelope['nonce']),
+        cipherText: _asBytes(envelope['ct']),
+        mac: _asBytes(envelope['mac']),
+      ),
     );
+  }
 
-    final key = await Kdf(params).deriveKey(password: password, salt: salt);
-    final plaintext = await _aead.decrypt(key: key, data: cipher, aad: _aad);
-
+  VaultPayload _decodePayload(List<int> plaintext) {
     final Object? payload;
     try {
       payload = cborDecode(plaintext).toObject();
