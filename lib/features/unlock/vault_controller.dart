@@ -205,6 +205,18 @@ class VaultController extends Notifier<VaultUiState> {
         ),
       );
 
+  /// Changes the base/display currency, then refetches the FX rates the new base
+  /// needs so totals and gain/loss update.
+  Future<void> setBaseCurrency(Currency base) async {
+    final current = state.payload;
+    if (current == null || current.settings.baseCurrency == base) return;
+    await _mutate(
+      (payload) =>
+          payload.copyWith(settings: payload.settings.copyWith(baseCurrency: base)),
+    );
+    await refresh();
+  }
+
   Future<void> _mutate(VaultPayload Function(VaultPayload current) change) async {
     final epoch = _epoch;
     try {

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/model/money.dart';
 import '../asset_editor/asset_editor_screen.dart';
+import '../settings/settings_screen.dart';
 import '../unlock/vault_controller.dart';
 import 'portfolio_view.dart';
 
@@ -62,6 +63,14 @@ class PortfolioScreen extends ConsumerWidget {
               icon: const Icon(Icons.refresh),
               onPressed: notifier.refresh,
             ),
+          IconButton(
+            key: const Key('settings'),
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+          ),
           IconButton(
             key: const Key('lock'),
             tooltip: 'Lock',
