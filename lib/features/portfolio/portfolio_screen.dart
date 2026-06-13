@@ -1,21 +1,12 @@
-import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/model/money.dart';
 import '../asset_editor/asset_editor_screen.dart';
+import '../format/money_format.dart';
 import '../settings/settings_screen.dart';
 import '../unlock/vault_controller.dart';
 import 'portfolio_view.dart';
-
-String _formatMoney(Money? money) =>
-    money == null ? '—' : '${money.amount} ${money.currency.code}';
-
-String _formatPercent(Decimal percent) {
-  final value = percent.toDouble();
-  final sign = value >= 0 ? '+' : '';
-  return '$sign${value.toStringAsFixed(2)}%';
-}
 
 String _rowSubtitle(AssetRow row) {
   final buffer =
@@ -114,6 +105,7 @@ class _PortfolioBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final locale = Localizations.localeOf(context).toString();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -131,10 +123,10 @@ class _PortfolioBody extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(_formatMoney(row.value)),
+                      Text(formatMoney(row.value, locale: locale)),
                       if (row.gainPercent != null)
                         Text(
-                          _formatPercent(row.gainPercent!),
+                          formatPercent(row.gainPercent!),
                           style: TextStyle(
                             color: _gainColor(context, row.gain),
                             fontSize: 12,
@@ -163,6 +155,7 @@ class _TotalHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final locale = Localizations.localeOf(context).toString();
     final percent = view.totalGainPercent;
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -171,14 +164,14 @@ class _TotalHeader extends StatelessWidget {
         children: [
           Text('Total value', style: Theme.of(context).textTheme.labelMedium),
           Text(
-            _formatMoney(view.totalValue),
+            formatMoney(view.totalValue, locale: locale),
             key: const Key('total-value'),
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           const SizedBox(height: 4),
           Text(
-            '${_formatMoney(view.totalGain)}'
-            '${percent == null ? '' : ' (${_formatPercent(percent)})'}',
+            '${formatMoney(view.totalGain, locale: locale)}'
+            '${percent == null ? '' : ' (${formatPercent(percent)})'}',
             key: const Key('total-gain'),
             style: TextStyle(color: _gainColor(context, view.totalGain)),
           ),

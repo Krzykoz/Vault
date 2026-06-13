@@ -70,7 +70,8 @@ void main() {
 
     expect(find.text('Gold'), findsOneWidget);
     expect(find.byKey(const Key('total-value')), findsOneWidget);
-    expect(find.textContaining('4000'), findsWidgets);
+    // 2 units x $2000 = $4,000.00, grouped per the en_US locale.
+    expect(find.textContaining('4,000'), findsWidgets);
   });
 
   testWidgets('shows the empty state with no assets', (tester) async {
