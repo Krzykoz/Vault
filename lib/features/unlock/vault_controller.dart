@@ -9,7 +9,12 @@ import '../../core/model/payload.dart';
 import '../../core/model/settings.dart';
 import '../../core/ports/clock.dart';
 import '../../core/ports/file_store.dart';
+import '../../core/ports/http_client.dart';
+import '../../core/providers/provider_registry.dart';
+import '../../core/providers/yahoo_finance_provider.dart';
+import '../../core/refresh/price_refresher.dart';
 import '../../core/vault_repository.dart';
+import '../../infra/http_client_impl.dart';
 import '../../infra/system_clock.dart';
 
 /// Where the encrypted vault file lives. Overridden at app start with a native
@@ -21,6 +26,15 @@ final vaultFileStoreProvider = Provider<FileStore>((ref) {
 
 /// The clock used for cache-freshness decisions. Overridden in tests.
 final clockProvider = Provider<Clock>((ref) => const SystemClock());
+
+/// HTTP client used by the price providers. Overridden in tests.
+final httpClientProvider = Provider<HttpClient>((ref) => HttpClientImpl());
+
+/// Refreshes prices and FX using Yahoo. Overridden in tests with fakes.
+final priceRefresherProvider = Provider<PriceRefresher>((ref) {
+  final yahoo = YahooFinanceProvider(ref.watch(httpClientProvider));
+  return PriceRefresher(ProviderRegistry([yahoo]), yahoo);
+});
 
 /// Argon2id parameters used when creating a NEW vault. Overridden to a fast
 /// preset in tests.
@@ -42,12 +56,16 @@ class VaultUiState {
   final bool busy;
   final String? error;
   final VaultPayload? payload;
+  final bool refreshing;
+  final String? note;
 
   const VaultUiState({
     required this.phase,
     this.busy = false,
     this.error,
     this.payload,
+    this.refreshing = false,
+    this.note,
   });
 }
 
@@ -113,6 +131,42 @@ class VaultController extends Notifier<VaultUiState> {
     _epoch++;
     _repo.close();
     state = const VaultUiState(phase: VaultPhase.locked);
+  }
+
+  /// Fetches fresh prices and FX for the held assets, persists the updated
+  /// caches, and notes any failures. Safe to call only while open.
+  Future<void> refresh() async {
+    final current = state.payload;
+    if (current == null) return;
+    final epoch = _epoch;
+    state = VaultUiState(
+      phase: VaultPhase.open,
+      payload: current,
+      refreshing: true,
+    );
+    try {
+      final result = await ref
+          .read(priceRefresherProvider)
+          .refresh(current, now: ref.read(clockProvider).now());
+      if (epoch != _epoch) return;
+      final next = await _repo.update((payload) => payload.copyWith(
+            priceCache: result.priceCache,
+            fxCache: result.fxCache,
+          ));
+      if (epoch != _epoch) return;
+      state = VaultUiState(
+        phase: VaultPhase.open,
+        payload: next,
+        note: result.hadFailures ? 'Some prices could not be updated.' : null,
+      );
+    } catch (_) {
+      if (epoch != _epoch) return;
+      state = VaultUiState(
+        phase: VaultPhase.open,
+        payload: current,
+        note: 'Could not refresh prices.',
+      );
+    }
   }
 
   /// Adds [asset] if its id is new, or replaces the existing one.

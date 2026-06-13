@@ -16,35 +16,76 @@ String _formatPercent(Decimal percent) {
   return '$sign${value.toStringAsFixed(2)}%';
 }
 
+String _rowSubtitle(AssetRow row) {
+  final buffer =
+      StringBuffer('${row.quantity} · ${row.asset.symbol ?? assetTypeLabel(row.asset.type)}');
+  if (row.priceAsOf != null) {
+    buffer.write(' · as of ${row.priceAsOf!.toIso8601String().substring(0, 10)}');
+    if (row.stale) buffer.write(' (stale)');
+  }
+  return buffer.toString();
+}
+
 Color _gainColor(BuildContext context, Money? gain) {
   if (gain == null) return Theme.of(context).colorScheme.onSurface;
   return gain.isNegative ? Colors.red.shade700 : Colors.green.shade700;
 }
 
-/// The open-vault home: total value, gain/loss, and a list of holdings.
+/// The open-vault home: total value, gain/loss, a refresh action, and holdings.
 class PortfolioScreen extends ConsumerWidget {
   const PortfolioScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final payload = ref.watch(vaultControllerProvider).payload;
+    final state = ref.watch(vaultControllerProvider);
+    final payload = state.payload;
     final now = ref.watch(clockProvider).now();
+    final notifier = ref.read(vaultControllerProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Portfolio'),
         actions: [
+          if (state.refreshing)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            IconButton(
+              key: const Key('refresh'),
+              tooltip: 'Refresh prices',
+              icon: const Icon(Icons.refresh),
+              onPressed: notifier.refresh,
+            ),
           IconButton(
             key: const Key('lock'),
             tooltip: 'Lock',
             icon: const Icon(Icons.lock_outline),
-            onPressed: () => ref.read(vaultControllerProvider.notifier).lock(),
+            onPressed: notifier.lock,
           ),
         ],
       ),
-      body: payload == null || payload.assets.isEmpty
-          ? const Center(child: Text('No assets yet. Add your first one.'))
-          : _PortfolioBody(view: buildPortfolioView(payload, now: now)),
+      body: Column(
+        children: [
+          if (state.note != null)
+            Container(
+              width: double.infinity,
+              color: Theme.of(context).colorScheme.secondaryContainer,
+              padding: const EdgeInsets.all(12),
+              child: Text(state.note!, key: const Key('note')),
+            ),
+          Expanded(
+            child: payload == null || payload.assets.isEmpty
+                ? const Center(child: Text('No assets yet. Add your first one.'))
+                : _PortfolioBody(view: buildPortfolioView(payload, now: now)),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         key: const Key('add-asset'),
         tooltip: 'Add asset',
@@ -76,9 +117,7 @@ class _PortfolioBody extends StatelessWidget {
                 ListTile(
                   key: Key('asset-${row.asset.id}'),
                   title: Text(row.asset.name),
-                  subtitle: Text(
-                    '${row.quantity} · ${row.asset.symbol ?? assetTypeLabel(row.asset.type)}',
-                  ),
+                  subtitle: Text(_rowSubtitle(row)),
                   trailing: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.end,

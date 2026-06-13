@@ -60,6 +60,14 @@ class PriceCache {
   PriceCacheEntry? get(String providerId, String symbol) =>
       _entries[_key(providerId, symbol)];
 
+  /// The first cached entry for [symbol] from any provider, or null.
+  PriceCacheEntry? bySymbol(String symbol) {
+    for (final entry in _entries.values) {
+      if (entry.symbol == symbol) return entry;
+    }
+    return null;
+  }
+
   bool isFresh(PriceCacheEntry entry,
           {required Duration ttl, required DateTime now}) =>
       now.difference(entry.fetchedAt) <= ttl;

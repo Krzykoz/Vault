@@ -1,7 +1,6 @@
 import 'package:decimal/decimal.dart';
 
 import '../../core/cache/cached_fx_rates.dart';
-import '../../core/cache/fx_cache.dart';
 import '../../core/cache/price_cache.dart';
 import '../../core/model/asset.dart';
 import '../../core/model/calculations.dart';
@@ -11,7 +10,8 @@ import '../../core/model/payload.dart';
 
 /// One asset's line on the dashboard, valued in the base currency. [value],
 /// [costBasis], and [gain] are null when a needed price or FX rate is missing,
-/// so the UI shows "—" instead of a wrong figure.
+/// so the UI shows "—" instead of a wrong figure. [priceAsOf] is when the price
+/// was fetched (null for a manual price); [stale] means it is older than the TTL.
 class AssetRow {
   final Asset asset;
   final Decimal quantity;
@@ -20,6 +20,8 @@ class AssetRow {
   final Money? gain;
   final Decimal? gainPercent;
   final bool priced;
+  final DateTime? priceAsOf;
+  final bool stale;
 
   const AssetRow({
     required this.asset,
@@ -29,6 +31,8 @@ class AssetRow {
     this.costBasis,
     this.gain,
     this.gainPercent,
+    this.priceAsOf,
+    this.stale = false,
   });
 }
 
@@ -61,35 +65,36 @@ Decimal? _percent(Money gain, Money costBasis) => costBasis.isZero
     : (gain.amount / costBasis.amount).toDecimal(scaleOnInfinitePrecision: 12) *
         Decimal.fromInt(100);
 
-Money? _resolvePrice(
+({Money price, DateTime? asOf, bool stale})? _resolvePrice(
   Asset asset,
   PriceCache prices,
-  String providerId,
   Duration ttl,
   DateTime now,
 ) {
-  if (asset.manualPrice != null) return asset.manualPrice;
+  final manual = asset.manualPrice;
+  if (manual != null) return (price: manual, asOf: null, stale: false);
   final symbol = asset.symbol;
   if (symbol != null && symbol.isNotEmpty) {
-    return prices.fresh(providerId, symbol, ttl: ttl, now: now)?.price;
+    final entry = prices.bySymbol(symbol);
+    if (entry != null) {
+      return (
+        price: entry.price,
+        asOf: entry.fetchedAt,
+        stale: !prices.isFresh(entry, ttl: ttl, now: now),
+      );
+    }
   }
   return null;
 }
 
 /// Builds the dashboard view from a decrypted [payload]. Prices come from each
-/// asset's manual price or the [priceCache]; conversions use the [fxCache].
+/// asset's manual price or the cached price; conversions use the cached FX.
 /// Anything that can't be priced/converted is left null.
-PortfolioView buildPortfolioView(
-  VaultPayload payload, {
-  required DateTime now,
-  PriceCache? priceCache,
-  FxCache? fxCache,
-  String providerId = '',
-}) {
+PortfolioView buildPortfolioView(VaultPayload payload, {required DateTime now}) {
   final base = payload.settings.baseCurrency;
-  final prices = priceCache ?? PriceCache();
+  final prices = payload.priceCache;
   final rates = CachedFxRates(
-    fxCache ?? FxCache(),
+    payload.fxCache,
     now: now,
     ttl: payload.settings.fxTtl,
   );
@@ -109,12 +114,11 @@ PortfolioView buildPortfolioView(
       costBasis = null;
     }
 
-    final unitPrice =
-        _resolvePrice(asset, prices, providerId, payload.settings.priceTtl, now);
+    final resolved = _resolvePrice(asset, prices, payload.settings.priceTtl, now);
     Money? value;
-    if (unitPrice != null) {
+    if (resolved != null) {
       try {
-        value = convertMoney(unitPrice.times(quantity), base, rates);
+        value = convertMoney(resolved.price.times(quantity), base, rates);
       } on FxUnavailable {
         value = null;
       }
@@ -139,7 +143,9 @@ PortfolioView buildPortfolioView(
       costBasis: costBasis,
       gain: gain,
       gainPercent: gainPercent,
-      priced: unitPrice != null,
+      priced: resolved != null,
+      priceAsOf: resolved?.asOf,
+      stale: resolved?.stale ?? false,
     ));
   }
 

@@ -1,5 +1,6 @@
 import 'package:decimal/decimal.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vault/core/cache/price_cache.dart';
 import 'package:vault/core/model/asset.dart';
 import 'package:vault/core/model/currency.dart';
 import 'package:vault/core/model/lot.dart';
@@ -106,5 +107,43 @@ void main() {
     expect(view.rows, isEmpty);
     expect(view.totalValue, Money.zero(usd));
     expect(view.totalGainPercent, isNull);
+  });
+
+  test('uses a cached price and flags staleness past the TTL', () {
+    final fetchedAt = DateTime.utc(2024, 6, 1, 12);
+    final payload = VaultPayload(
+      settings: Settings(baseCurrency: usd, priceTtl: const Duration(hours: 1)),
+      assets: [
+        Asset(
+          id: 'a',
+          type: AssetType.stock,
+          name: 'Apple',
+          nativeCurrency: usd,
+          symbol: 'AAPL',
+        ),
+      ],
+      lots: [lot('l', 'a', '2', Money.parse('100', usd))],
+      priceCache: PriceCache().put(PriceCacheEntry(
+        providerId: 'yahoo',
+        symbol: 'AAPL',
+        price: Money.parse('150', usd),
+        fetchedAt: fetchedAt,
+      )),
+    );
+
+    final fresh = buildPortfolioView(
+      payload,
+      now: fetchedAt.add(const Duration(minutes: 30)),
+    );
+    expect(fresh.rows.single.value, Money.parse('300', usd));
+    expect(fresh.rows.single.priceAsOf, fetchedAt);
+    expect(fresh.rows.single.stale, isFalse);
+
+    final stale = buildPortfolioView(
+      payload,
+      now: fetchedAt.add(const Duration(hours: 2)),
+    );
+    expect(stale.rows.single.stale, isTrue);
+    expect(stale.rows.single.value, Money.parse('300', usd)); // last-known value
   });
 }
