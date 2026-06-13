@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -92,6 +93,16 @@ class _CreateVaultScreenState extends ConsumerState<CreateVaultScreen> {
                           )
                         : const Text('Create vault'),
                   ),
+                  if (kIsWeb) ...[
+                    const SizedBox(height: 12),
+                    TextButton(
+                      key: const Key('open-existing'),
+                      onPressed: () => ref
+                          .read(vaultControllerProvider.notifier)
+                          .openExistingFile(),
+                      child: const Text('Open an existing vault file'),
+                    ),
+                  ],
                 ],
               ),
             ),

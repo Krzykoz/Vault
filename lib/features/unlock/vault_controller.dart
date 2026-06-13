@@ -133,6 +133,17 @@ class VaultController extends Notifier<VaultUiState> {
     state = const VaultUiState(phase: VaultPhase.locked);
   }
 
+  /// Web: lets the user pick an existing vault file to open. On platforms whose
+  /// store has no picker this is a no-op.
+  Future<void> openExistingFile() async {
+    final store = ref.read(vaultFileStoreProvider);
+    if (store is FilePicker) {
+      if (await store.pickInto()) {
+        state = const VaultUiState(phase: VaultPhase.locked);
+      }
+    }
+  }
+
   /// Fetches fresh prices and FX for the held assets, persists the updated
   /// caches, and notes any failures. Safe to call only while open.
   Future<void> refresh() async {
