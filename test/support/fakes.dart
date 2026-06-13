@@ -95,12 +95,17 @@ class FakeHttpClient implements HttpClient {
 }
 
 /// A scriptable price + FX source for refresh tests. Quotes are keyed by symbol;
-/// latest rates by `FROMTO`, dated rates by `FROMTO@YYYY-MM-DD`.
+/// latest rates by `FROMTO`, dated rates by `FROMTO@YYYY-MM-DD`. Every lookup is
+/// recorded in [quoteCalls] / [fxRateCalls] so tests can assert how often (or
+/// whether) the network was touched.
 class FakeMarket implements PriceProvider, FxProvider {
   final Map<String, Money> quotes;
   final Map<String, Decimal> latestRates;
   final Map<String, Decimal> datedRates;
   final Set<String> failSymbols;
+
+  final List<String> quoteCalls = [];
+  final List<String> fxRateCalls = [];
 
   FakeMarket({
     this.quotes = const {},
@@ -121,6 +126,7 @@ class FakeMarket implements PriceProvider, FxProvider {
 
   @override
   Future<PriceQuote> fetchQuote(String symbol) async {
+    quoteCalls.add(symbol);
     if (failSymbols.contains(symbol)) throw PriceUnavailable(symbol);
     final price = quotes[symbol];
     if (price == null) throw PriceUnavailable(symbol);
@@ -129,12 +135,13 @@ class FakeMarket implements PriceProvider, FxProvider {
 
   @override
   Future<FxQuote> fetchRate(Currency base, Currency quote, {DateTime? date}) async {
-    if (base == quote) {
-      return FxQuote(rate: Decimal.fromInt(1), asOf: DateTime.utc(2024, 1, 1), date: date);
-    }
     final key = date == null
         ? '${base.code}${quote.code}'
         : '${base.code}${quote.code}@${date.toUtc().toIso8601String().substring(0, 10)}';
+    fxRateCalls.add(key);
+    if (base == quote) {
+      return FxQuote(rate: Decimal.fromInt(1), asOf: DateTime.utc(2024, 1, 1), date: date);
+    }
     final rate = date == null ? latestRates[key] : datedRates[key];
     if (rate == null) throw PriceUnavailable(key);
     return FxQuote(rate: rate, asOf: DateTime.utc(2024, 1, 1), date: date);

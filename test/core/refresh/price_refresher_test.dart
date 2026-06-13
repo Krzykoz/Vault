@@ -113,6 +113,48 @@ void main() {
     expect(result.fxCache.dated(eur, usd, date)!.rate, Decimal.parse('1.1'));
   });
 
+  test('fetches an uncached historical rate once, then never again', () async {
+    final date = DateTime.utc(2023, 5, 1);
+    VaultPayload freshPayload() => VaultPayload(
+          settings: Settings(baseCurrency: usd),
+          assets: [stock('s', 'SAP', eur)],
+          lots: [
+            Lot(
+              id: 'l',
+              assetId: 's',
+              quantity: Decimal.fromInt(2),
+              unitCost: Money.parse('100', eur),
+              date: date,
+            ),
+          ],
+        );
+    final market = FakeMarket(
+      quotes: {'SAP': Money.parse('120', eur)},
+      latestRates: {'EURUSD': Decimal.parse('1.2')},
+      datedRates: {'EURUSD@2023-05-01': Decimal.parse('1.1')},
+    );
+    final refresher = refresherWith(market);
+
+    // First refresh: the uncached purchase-date rate is fetched exactly once.
+    final first = await refresher.refresh(freshPayload(), now: now);
+    expect(
+      market.fxRateCalls.where((c) => c == 'EURUSD@2023-05-01').length,
+      1,
+    );
+
+    // Carry the caches forward; the dated rate must not be fetched again, so
+    // revaluing offline (e.g. after a base-currency change) needs no network.
+    market.fxRateCalls.clear();
+    final cached = freshPayload()
+        .copyWith(priceCache: first.priceCache, fxCache: first.fxCache);
+    await refresher.refresh(cached, now: now);
+    expect(
+      market.fxRateCalls.where((c) => c == 'EURUSD@2023-05-01').length,
+      0,
+      reason: 'a cached purchase-date rate should never be refetched',
+    );
+  });
+
   test('collects failures and still updates what it can', () async {
     final payload = VaultPayload(
       settings: Settings(baseCurrency: usd),
