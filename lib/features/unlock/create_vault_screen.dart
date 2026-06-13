@@ -16,6 +16,7 @@ class _CreateVaultScreenState extends ConsumerState<CreateVaultScreen> {
   final _formKey = GlobalKey<FormState>();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
+  bool _enableBiometric = false;
 
   @override
   void dispose() {
@@ -26,7 +27,10 @@ class _CreateVaultScreenState extends ConsumerState<CreateVaultScreen> {
 
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
-      ref.read(vaultControllerProvider.notifier).create(password: _password.text);
+      ref.read(vaultControllerProvider.notifier).create(
+            password: _password.text,
+            enableBiometric: _enableBiometric,
+          );
     }
   }
 
@@ -73,6 +77,20 @@ class _CreateVaultScreenState extends ConsumerState<CreateVaultScreen> {
                         : null,
                     onFieldSubmitted: (_) => _submit(),
                   ),
+                  if (state.biometricAvailable) ...[
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      key: const Key('enable-biometric'),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      value: _enableBiometric,
+                      onChanged: state.busy
+                          ? null
+                          : (value) =>
+                              setState(() => _enableBiometric = value ?? false),
+                      title: const Text('Unlock with biometrics later'),
+                    ),
+                  ],
                   if (state.error != null) ...[
                     const SizedBox(height: 12),
                     Text(

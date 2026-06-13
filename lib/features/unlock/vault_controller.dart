@@ -7,14 +7,18 @@ import '../../core/model/currency.dart';
 import '../../core/model/lot.dart';
 import '../../core/model/payload.dart';
 import '../../core/model/settings.dart';
+import '../../core/ports/biometric_gate.dart';
 import '../../core/ports/clock.dart';
 import '../../core/ports/file_store.dart';
 import '../../core/ports/http_client.dart';
+import '../../core/ports/secure_store.dart';
 import '../../core/providers/provider_registry.dart';
 import '../../core/providers/yahoo_finance_provider.dart';
 import '../../core/refresh/price_refresher.dart';
 import '../../core/vault_repository.dart';
+import '../../infra/biometric_gate_impl.dart';
 import '../../infra/http_client_impl.dart';
+import '../../infra/secure_store_impl.dart';
 import '../../infra/system_clock.dart';
 
 /// Where the encrypted vault file lives. Overridden at app start with a native
@@ -48,6 +52,13 @@ final vaultRepositoryProvider = Provider<VaultRepository>((ref) {
   );
 });
 
+/// Biometric authentication. Overridden in tests with a fake.
+final biometricGateProvider =
+    Provider<BiometricGate>((ref) => BiometricGateImpl());
+
+/// Secure storage for the biometric-unlock password. Overridden in tests.
+final secureStoreProvider = Provider<SecureStore>((ref) => SecureStoreImpl());
+
 /// Which screen the vault flow should show.
 enum VaultPhase { loading, absent, locked, open }
 
@@ -58,6 +69,8 @@ class VaultUiState {
   final VaultPayload? payload;
   final bool refreshing;
   final String? note;
+  final bool biometricAvailable;
+  final bool biometricEnrolled;
 
   const VaultUiState({
     required this.phase,
@@ -66,6 +79,8 @@ class VaultUiState {
     this.payload,
     this.refreshing = false,
     this.note,
+    this.biometricAvailable = false,
+    this.biometricEnrolled = false,
   });
 }
 
@@ -84,53 +99,167 @@ class VaultController extends Notifier<VaultUiState> {
   /// so a write completing after [lock] cannot reopen the vault.
   int _epoch = 0;
 
-  Future<void> _init() async {
-    final exists = await _repo.exists();
-    state = VaultUiState(
-      phase: exists ? VaultPhase.locked : VaultPhase.absent,
+  bool _bioAvailable = false;
+  bool _bioEnrolled = false;
+  static const String _biometricKey = 'vault_password';
+
+  VaultUiState _gateState(VaultPhase phase, {bool busy = false, String? error}) {
+    return VaultUiState(
+      phase: phase,
+      busy: busy,
+      error: error,
+      biometricAvailable: _bioAvailable,
+      biometricEnrolled: _bioEnrolled,
     );
   }
 
-  Future<void> create({required String password}) async {
-    state = const VaultUiState(phase: VaultPhase.absent, busy: true);
+  Future<void> _init() async {
+    final exists = await _repo.exists();
+    _bioAvailable = await _probeBiometricsAvailable();
+    if (!exists) {
+      // A leftover credential must not auto-enroll a vault that no longer
+      // exists, nor a fresh one the user creates later.
+      await _clearBiometric();
+    }
+    _bioEnrolled = exists && await _hasStoredCredential();
+    state = _gateState(exists ? VaultPhase.locked : VaultPhase.absent);
+  }
+
+  /// Biometric and secure-storage support varies by platform and can throw
+  /// (e.g. web, or a desktop without a keychain). Treat any failure as
+  /// "unavailable" so the app still falls back to password unlock.
+  Future<bool> _probeBiometricsAvailable() async {
+    try {
+      return await ref.read(biometricGateProvider).isAvailable();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _hasStoredCredential() async {
+    try {
+      return await ref.read(secureStoreProvider).containsKey(_biometricKey);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> create({
+    required String password,
+    bool enableBiometric = false,
+  }) async {
+    state = _gateState(VaultPhase.absent, busy: true);
     try {
       final payload = await _repo.create(
         password: password,
         initial: VaultPayload(settings: Settings(baseCurrency: Currency('USD'))),
       );
+      // A brand-new vault must only be biometric-enrolled if the user opts in
+      // here; otherwise clear any credential left over from a previous vault.
+      if (enableBiometric) {
+        await _enableBiometric(password);
+      } else {
+        await _clearBiometric();
+      }
       _epoch++;
       state = VaultUiState(phase: VaultPhase.open, payload: payload);
     } catch (_) {
-      state = const VaultUiState(
-        phase: VaultPhase.absent,
-        error: 'Could not create the vault.',
+      state = _gateState(VaultPhase.absent, error: 'Could not create the vault.');
+    }
+  }
+
+  Future<void> unlock({
+    required String password,
+    bool enableBiometric = false,
+  }) async {
+    state = _gateState(VaultPhase.locked, busy: true);
+    try {
+      final payload = await _repo.open(password: password);
+      if (enableBiometric) await _enableBiometric(password);
+      _epoch++;
+      state = VaultUiState(phase: VaultPhase.open, payload: payload);
+    } on WrongPassword {
+      state = _gateState(VaultPhase.locked, error: 'Wrong password. Try again.');
+    } catch (_) {
+      state = _gateState(VaultPhase.locked, error: 'Could not open the vault.');
+    }
+  }
+
+  /// Reads the biometric-bound password (which makes the OS prompt for a
+  /// fingerprint / face) and unlocks with it. If the saved password no longer
+  /// opens this vault, it is discarded so the user can re-enroll.
+  Future<void> unlockWithBiometrics() async {
+    if (!_bioEnrolled) return;
+    final String? password;
+    try {
+      password = await ref.read(secureStoreProvider).read(_biometricKey);
+    } catch (_) {
+      // The OS prompt was cancelled or failed. The saved password is still
+      // valid, so keep it and let the user retry or type their password.
+      state = _gateState(
+        VaultPhase.locked,
+        error: 'Biometric authentication failed.',
+      );
+      return;
+    }
+    if (password == null) {
+      await _clearBiometric();
+      state = _gateState(
+        VaultPhase.locked,
+        error: 'Saved credentials are no longer available. Enter your password.',
+      );
+      return;
+    }
+    await unlock(password: password);
+    if (state.phase != VaultPhase.open) {
+      // The saved password didn't open this vault (e.g. the file was replaced).
+      // Drop it and fall back to password entry so the user can re-enroll.
+      await _clearBiometric();
+      state = _gateState(
+        VaultPhase.locked,
+        error: 'Saved credentials no longer match this vault. Enter your password.',
       );
     }
   }
 
-  Future<void> unlock({required String password}) async {
-    state = const VaultUiState(phase: VaultPhase.locked, busy: true);
+  /// Confirms the user with a biometric prompt, then saves the password in the
+  /// biometric-bound secure store. Best-effort: a storage failure leaves the
+  /// vault open with biometrics simply not enabled.
+  Future<void> _enableBiometric(String password) async {
+    if (!_bioAvailable) return;
+    if (!await _promptBiometrics('Enable biometric unlock')) return;
     try {
-      final payload = await _repo.open(password: password);
-      _epoch++;
-      state = VaultUiState(phase: VaultPhase.open, payload: payload);
-    } on WrongPassword {
-      state = const VaultUiState(
-        phase: VaultPhase.locked,
-        error: 'Wrong password. Try again.',
-      );
+      await ref.read(secureStoreProvider).write(_biometricKey, password);
+      _bioEnrolled = true;
     } catch (_) {
-      state = const VaultUiState(
-        phase: VaultPhase.locked,
-        error: 'Could not open the vault.',
-      );
+      // Saving to the keychain failed; leave biometrics off but keep the vault
+      // open so the create/unlock the user asked for still succeeds.
+    }
+  }
+
+  Future<void> _clearBiometric() async {
+    _bioEnrolled = false;
+    try {
+      await ref.read(secureStoreProvider).delete(_biometricKey);
+    } catch (_) {
+      // Best effort: nothing else to do if the keychain delete fails.
+    }
+  }
+
+  /// Runs the biometric prompt, mapping a thrown platform error to a plain
+  /// "not authenticated" so callers never see an unhandled exception.
+  Future<bool> _promptBiometrics(String reason) async {
+    try {
+      return await ref.read(biometricGateProvider).authenticate(reason: reason);
+    } catch (_) {
+      return false;
     }
   }
 
   void lock() {
     _epoch++;
     _repo.close();
-    state = const VaultUiState(phase: VaultPhase.locked);
+    state = _gateState(VaultPhase.locked);
   }
 
   /// Web: lets the user pick an existing vault file to open. On platforms whose

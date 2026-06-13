@@ -21,6 +21,9 @@ void main() {
         vaultFileStoreProvider.overrideWithValue(InMemoryFileStore()),
         vaultCreateParamsProvider
             .overrideWithValue(const Argon2Params.forTesting()),
+        biometricGateProvider
+            .overrideWithValue(FakeBiometricGate(available: false)),
+        secureStoreProvider.overrideWithValue(InMemorySecureStore()),
       ],
     );
     addTearDown(container.dispose);

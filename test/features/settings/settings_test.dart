@@ -33,6 +33,9 @@ void main() {
         vaultFileStoreProvider.overrideWithValue(store),
         vaultCreateParamsProvider
             .overrideWithValue(const Argon2Params.forTesting()),
+        biometricGateProvider
+            .overrideWithValue(FakeBiometricGate(available: false)),
+        secureStoreProvider.overrideWithValue(InMemorySecureStore()),
         clockProvider.overrideWithValue(FixedClock(fixedNow)),
         priceRefresherProvider.overrideWithValue(
           PriceRefresher(ProviderRegistry([market]), market),
@@ -79,6 +82,9 @@ void main() {
         vaultFileStoreProvider.overrideWithValue(InMemoryFileStore()),
         vaultCreateParamsProvider
             .overrideWithValue(const Argon2Params.forTesting()),
+        biometricGateProvider
+            .overrideWithValue(FakeBiometricGate(available: false)),
+        secureStoreProvider.overrideWithValue(InMemorySecureStore()),
       ],
     );
     addTearDown(container.dispose);

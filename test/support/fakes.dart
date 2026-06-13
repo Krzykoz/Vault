@@ -22,15 +22,27 @@ class FixedClock implements Clock {
   DateTime now() => current;
 }
 
-/// In-memory [SecureStore] for tests.
+/// In-memory [SecureStore] for tests. [failWrites]/[failReads] simulate a
+/// keychain error or a cancelled biometric prompt.
 class InMemorySecureStore implements SecureStore {
   final Map<String, String> entries = {};
+  bool failWrites = false;
+  bool failReads = false;
 
   @override
-  Future<void> write(String key, String value) async => entries[key] = value;
+  Future<void> write(String key, String value) async {
+    if (failWrites) throw StateError('secure-store write failed');
+    entries[key] = value;
+  }
 
   @override
-  Future<String?> read(String key) async => entries[key];
+  Future<String?> read(String key) async {
+    if (failReads) throw StateError('secure-store read failed');
+    return entries[key];
+  }
+
+  @override
+  Future<bool> containsKey(String key) async => entries.containsKey(key);
 
   @override
   Future<void> delete(String key) async => entries.remove(key);

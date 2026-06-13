@@ -13,6 +13,7 @@ class UnlockScreen extends ConsumerStatefulWidget {
 
 class _UnlockScreenState extends ConsumerState<UnlockScreen> {
   final _password = TextEditingController();
+  bool _enableBiometric = false;
 
   @override
   void dispose() {
@@ -22,7 +23,10 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
 
   void _submit() {
     if (_password.text.isEmpty) return;
-    ref.read(vaultControllerProvider.notifier).unlock(password: _password.text);
+    ref.read(vaultControllerProvider.notifier).unlock(
+          password: _password.text,
+          enableBiometric: _enableBiometric,
+        );
   }
 
   @override
@@ -48,6 +52,20 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                       const InputDecoration(labelText: 'Master password'),
                   onSubmitted: (_) => _submit(),
                 ),
+                if (state.biometricAvailable && !state.biometricEnrolled) ...[
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    key: const Key('enable-biometric'),
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: _enableBiometric,
+                    onChanged: state.busy
+                        ? null
+                        : (value) =>
+                            setState(() => _enableBiometric = value ?? false),
+                    title: const Text('Unlock with biometrics next time'),
+                  ),
+                ],
                 if (state.error != null) ...[
                   const SizedBox(height: 12),
                   Text(
@@ -68,6 +86,19 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                         )
                       : const Text('Unlock'),
                 ),
+                if (state.biometricEnrolled) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const Key('unlock-biometric'),
+                    onPressed: state.busy
+                        ? null
+                        : () => ref
+                            .read(vaultControllerProvider.notifier)
+                            .unlockWithBiometrics(),
+                    icon: const Icon(Icons.fingerprint),
+                    label: const Text('Unlock with biometrics'),
+                  ),
+                ],
               ],
             ),
           ),

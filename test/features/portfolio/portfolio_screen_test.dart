@@ -23,6 +23,9 @@ Future<void> _createVault(WidgetTester tester, InMemoryFileStore store) async {
         vaultFileStoreProvider.overrideWithValue(store),
         vaultCreateParamsProvider
             .overrideWithValue(const Argon2Params.forTesting()),
+        biometricGateProvider
+            .overrideWithValue(FakeBiometricGate(available: false)),
+        secureStoreProvider.overrideWithValue(InMemorySecureStore()),
       ],
       child: const VaultApp(),
     ),
