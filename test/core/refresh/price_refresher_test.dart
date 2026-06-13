@@ -65,6 +65,27 @@ void main() {
     expect(result.priceCache.length, 0);
   });
 
+  test('a priced asset with a manual price is not fetched', () async {
+    final payload = VaultPayload(
+      settings: Settings(baseCurrency: usd),
+      assets: [
+        Asset(
+          id: 'a',
+          type: AssetType.stock,
+          name: 'Apple',
+          nativeCurrency: usd,
+          symbol: 'AAPL',
+          manualPrice: Money.parse('200', usd),
+        ),
+      ],
+    );
+    // AAPL would fail if fetched, but the manual price means it is skipped.
+    final market = FakeMarket(failSymbols: {'AAPL'});
+    final result = await refresherWith(market).refresh(payload, now: now);
+    expect(result.hadFailures, isFalse);
+    expect(result.priceCache.length, 0);
+  });
+
   test('fetches latest and historical FX for a foreign asset', () async {
     final date = DateTime.utc(2023, 5, 1);
     final payload = VaultPayload(

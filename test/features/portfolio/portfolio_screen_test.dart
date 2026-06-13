@@ -66,4 +66,16 @@ void main() {
     expect(find.text('Required'), findsWidgets);
     expect(find.text('Add asset'), findsOneWidget); // still on the editor
   });
+
+  testWidgets('priced assets offer a manual price fallback', (tester) async {
+    final store = InMemoryFileStore();
+    await _createVault(tester, store);
+
+    await tester.tap(find.byKey(const Key('add-asset')));
+    await tester.pumpAndSettle();
+
+    // The default type is a stock (priced) — both symbol and manual price show.
+    expect(find.byKey(const Key('symbol')), findsOneWidget);
+    expect(find.byKey(const Key('manualPrice')), findsOneWidget);
+  });
 }

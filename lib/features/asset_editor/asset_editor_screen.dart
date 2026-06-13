@@ -172,21 +172,22 @@ class _AssetEditorScreenState extends ConsumerState<AssetEditorScreen> {
                   validator: (v) =>
                       (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
-                if (!_priced)
-                  TextFormField(
-                    key: const Key('manualPrice'),
-                    controller: _manualPrice,
-                    decoration: const InputDecoration(
-                      labelText: 'Manual price (optional)',
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    validator: (v) {
-                      if (v == null || v.trim().isEmpty) return null;
-                      return _tryDecimal(v) == null ? 'Enter a number' : null;
-                    },
+                TextFormField(
+                  key: const Key('manualPrice'),
+                  controller: _manualPrice,
+                  decoration: const InputDecoration(
+                    labelText: 'Manual price (optional)',
+                    helperText: 'Overrides the fetched price — useful on web '
+                        'when fetching is blocked.',
                   ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return null;
+                    return _tryDecimal(v) == null ? 'Enter a number' : null;
+                  },
+                ),
                 const SizedBox(height: 16),
                 FilledButton(
                   key: const Key('save-asset'),

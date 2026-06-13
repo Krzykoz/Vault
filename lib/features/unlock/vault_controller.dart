@@ -168,7 +168,9 @@ class VaultController extends Notifier<VaultUiState> {
       state = VaultUiState(
         phase: VaultPhase.open,
         payload: next,
-        note: result.hadFailures ? 'Some prices could not be updated.' : null,
+        note: result.hadFailures
+            ? 'Some prices could not be updated. Set a manual price if needed.'
+            : null,
       );
     } catch (_) {
       if (epoch != _epoch) return;
